@@ -8,6 +8,8 @@ setup(
         'numpy',
         'pandas',
         's3fs',
+        'anndata',
+        'scanpy',
     ],
     # author='Your Name',
     # author_email='your@email.com',
