@@ -572,18 +572,20 @@ def process_cellxgene_atlas_adatas(
     umap_key: str,
     feature_lengths_df: Union[None, pd.DataFrame] = None,
     normalize_length: bool = False,
+    n_neighbors: int = 15,
+    louvain_resolution: float = 1.0,
 ) -> None:
     """ """
     sc.pp.neighbors(
         adata,
-        n_neighbors=15,
+        n_neighbors=n_neighbors,
         n_pcs=50,
         use_rep=use_rep,
     )
 
     sc.tl.louvain(
         adata,
-        resolution=1.0,
+        resolution=louvain_resolution,
     )
 
     sc.tl.umap(adata)
@@ -594,14 +596,12 @@ def process_cellxgene_atlas_adatas(
     )
 
     if "feature_length" not in adata.var.columns:
-        print(adata.var.shape)
         adata.var = adata.var.merge(
             feature_lengths_df,
             left_index=True,
             right_index=True,
             how="left",
         )
-        print(adata.var.shape)
 
     padata = pseudobulk_adata(
         adata,
@@ -617,3 +617,103 @@ def process_cellxgene_atlas_adatas(
     padata.var.loc[:, "gene_name"] = padata.var.loc[:, "feature_name"]
 
     padata.write_h5ad(out_loc / f"{adata_name}_pseuodobulk.h5ad")
+
+
+def process_hpa_atlas_adatas(
+    adata: ad.AnnData,
+    adata_name: str,
+    out_loc: Path,
+    use_rep: str,
+    umap_key: str,
+    n_neighbors: int = 15,
+    louvain_resolution: float = 1.0,
+) -> None:
+    """ """
+
+    adata.obsm["X_pca"] = sc.tl.pca(adata.X[:, :].astype(float), zero_center=False)
+
+    sc.pp.neighbors(
+        adata,
+        n_neighbors=n_neighbors,
+        n_pcs=50,
+        use_rep=use_rep,
+    )
+
+    sc.tl.louvain(
+        adata,
+        resolution=louvain_resolution,
+    )
+
+    adata.obs["tissue_cell_type"] = adata.obs.apply(
+        lambda x: f"{x.tissue}__{x.cell_type}".replace(" ", "_"),
+        axis=1,
+    )
+
+    padata = pseudobulk_adata(
+        adata,
+        "louvain",
+        "tissue_cell_type",
+        min_cells=20,
+        min_counts=200,
+        umap_key=umap_key,
+        calc_tpm=True,
+        normalize_length=False,
+    )
+
+    out_loc.mkdir(exist_ok=True, parents=True)
+    padata.write_h5ad(out_loc / f"{adata_name}_pseuodobulk.h5ad")
+
+
+def build_hpa_tissue_adata(
+    tissue_loc: Path,
+    cluster_tissue_type_df: pd.DataFrame,
+    gene_df: pd.DataFrame,
+) -> None:
+    """ """
+    tissue_name = tissue_loc.parts[-1]
+
+    cell_df = pd.read_csv(
+        tissue_loc / "cell_data.tsv",
+        sep="\t",
+        index_col=0,
+    )
+    obs = cell_df.loc[:, ~cell_df.columns.str.startswith("umap_")]
+    obs["cluster"] = obs["cluster"].astype(str)
+    obs.loc[:, "cluster"] = obs["cluster"].map(lambda x: f"c-{x}")
+    umap = cell_df.loc[:, ["umap_x", "umap_y"]].values
+    obs = (
+        obs.reset_index(drop=False)
+        .merge(
+            cluster_tissue_type_df.loc[cluster_tissue_type_df["tissue"] == tissue_name],
+            left_on="cluster",
+            right_on="cluster",
+        )
+        .set_index("cell_id")
+    )
+
+    counts_matrix, genes, cell_ids = csv_to_csr_matrix(tissue_loc / "read_count.tsv")
+    cell_ids = [int(c) for c in cell_ids]
+    obs = obs.reindex(cell_ids)
+
+    var = pd.DataFrame(index=genes)
+    var.index.name = "gene"
+
+    var = (
+        var.reset_index()
+        .merge(
+            gene_df,
+            left_on="gene",
+            right_on="gene",
+        )
+        .set_index("gene")
+    )
+
+    adata = ad.AnnData(
+        X=counts_matrix.copy(),
+        obs=obs.copy(),
+        var=var.copy(),
+        obsm={"X_umap": umap.copy()},
+        uns={"title": f"HPA - {tissue_name}"},
+    )
+
+    return adata

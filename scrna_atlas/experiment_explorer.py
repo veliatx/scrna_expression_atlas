@@ -10,10 +10,6 @@ import streamlit as st
 from plotly.subplots import make_subplots
 import plotly.graph_objects as go
 
-from shapely.ops import unary_union
-from shapely import Polygon, MultiPolygon, GeometryCollection
-
-from scrna_atlas.multiadata import AtlasAdataWrapper
 from scrna_atlas import settings, velia_utils
 from scrna_atlas.plotting import build_scatter
 
@@ -51,8 +47,10 @@ def experiment_explorer_tab(
                     "assay",
                     "disease",
                     "louvain",
+                    "leiden",
                     "sex",
                     "cluster",
+                    "cell_type_cluster",
                 ]
                 + adata.uns["factors"].tolist()
             )
@@ -104,8 +102,10 @@ def experiment_explorer_tab(
                     "assay",
                     "disease",
                     "louvain",
+                    "leiden",
                     "sex",
                     "cluster",
+                    "cell_type_cluster",
                 ]
                 + adata.uns["factors"].tolist()
             )
@@ -146,7 +146,11 @@ def experiment_explorer_tab(
             + list(
                 map(
                     lambda x: x.capitalize(),
-                    adata.obs.columns[adata.obs.columns.isin(["sex", "tissue"])],
+                    adata.obs.columns[
+                        adata.obs.columns.isin(
+                            ["sex", "tissue", "leiden", "cell_type_cluster"]
+                        )
+                    ],
                 )
             ),
         )
@@ -173,7 +177,6 @@ def experiment_explorer_tab(
 
         gene_selection = st.selectbox(
             "Pick Gene/uProtein",
-            # adata.var.loc[:,'gene_name'],
             gene_selection_options,
             key=tab_title + "b",
         )
@@ -203,18 +206,6 @@ def experiment_explorer_tab(
                 ignore_index=False,
             )
 
-            # gene_selection_df = pd.concat(
-            #     [
-            #         adata.obs.copy(),
-            #         pd.DataFrame(
-            #             adata.X[:,adata.var['gene_name'] == gene_selection],
-            #             index=adata.obs.index,
-            #             columns=adata.var['gene_name'][adata.var['gene_name'] == gene_selection],
-            #         ),
-            #     ],
-            #     axis=1,
-            #     ignore_index=False,
-            # )
             box_data = go.Box(
                 name=gene_selection,
                 x=[
@@ -282,6 +273,11 @@ def experiment_explorer_tab(
                 obs_filter = (
                     adata.obs["cell_type"].str.replace(" ", "")
                     == contrast_selection.split("__")[1].split("de-")[-1]
+                )
+            elif "cell_type_cluster" in adata.obs.columns:
+                obs_filter = (
+                    adata.obs["cell_type_cluster"].str.replace(" ", "")
+                    == contrast_selection.split("__")[0].split("de-")[-1]
                 )
             else:
                 obs_filter = (

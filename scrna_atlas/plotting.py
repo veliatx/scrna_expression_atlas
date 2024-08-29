@@ -137,3 +137,29 @@ def build_scatter(
                 )
 
     return scatter_data
+
+
+def build_expression_barplot(
+    gene_selection_df: pd.DataFrame,
+    celltype_tissue_select: str,
+    gene_selection: List[str],
+    column_names: List[str],
+) -> List[go.Trace]:
+    """ """
+    bar_data = []
+
+    for g in column_names:
+        g_ix = [i for i, s in enumerate(gene_selection) if s in g][0]
+        gene_selection_df_groupby = gene_selection_df.groupby(celltype_tissue_select)
+        group_means = gene_selection_df_groupby[g].agg(np.mean).fillna(0.0)
+        group_ncells = gene_selection_df_groupby["bulk_n_cells"].agg(np.sum).fillna(0.0)
+        bar_data.append(
+            go.Bar(
+                name=gene_selection[g_ix],
+                x=group_means.index,
+                y=group_means,
+                text=group_ncells,
+            )
+        )
+
+    return bar_data

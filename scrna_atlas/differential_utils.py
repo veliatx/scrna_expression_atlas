@@ -59,6 +59,10 @@ def run_pseudobulk_de(
             logger.info(f"Skipping {ct} because not enough samples/cell type.")
             continue
 
+        if not all([r in sub_adata.obs[c].tolist() for c, r in ref_factor.items()]):
+            logger.info(f"Skipping {ct} because reference factor not present in {ct}.")
+            continue
+
         if method.lower() == "pydeseq2":
             dds = pydeseq2_fit_model(
                 sub_adata,
@@ -92,6 +96,11 @@ def run_pseudobulk_de(
                 r_dds,
                 de_prefix=ct,
             )
+            for k, df in padata.varm.items():
+                if not k.startswith("de-"):
+                    continue
+                df["log10_padj"] = np.log10(df["padj"])
+
         elif method.lower() == "edger":
             model, _ = r_build_model(
                 sub_adata,
@@ -109,6 +118,21 @@ def run_pseudobulk_de(
                 r_dge,
                 de_prefix=ct,
             )
+            for k, df in padata.varm.items():
+                if not k.startswith("de-"):
+                    continue
+                df.rename(
+                    {
+                        "logFC": "log2FoldChange",
+                        "logCPM": "baseMean",
+                        "F": "stat",
+                        "PValue": "pvalue",
+                        "FDR": "padj",
+                    },
+                    axis=1,
+                    inplace=True,
+                )
+                df["log10_padj"] = np.log10(df["padj"])
         else:
             raise Exception("Method must be one of {pydeseq2, deseq2, edger}.")
 
@@ -545,9 +569,6 @@ def r_deseq2_test_contrasts(
         if c == "Intercept":
             continue
         r_res = deseq2.lfcShrink(r_dds, coef=i + 1, type="apeglm")
-        # print(r_dds)
-        # print(dir(r_dds))
-        # print(np.array(r_dds.slotnames()))
         # r_dds.do_slot_assign("condition", ro.r("relevel")(r_dds.do_slot("condition"), model.colnames[-1]))
         # r_res = deseq2.results(r_dds, contrast=[model.colnames[-1], model.colnames[-2]], )# type='normal')
 

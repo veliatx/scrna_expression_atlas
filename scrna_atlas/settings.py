@@ -18,7 +18,7 @@ HPA_SCRNA_CLUSTER_EXPRESSION_URL = (
 )
 HPA_DATA_LOC = DATA_LOC / "hpa"
 
-DASHBOARD_SORFS_URL = "s3://velia-data-dev/VDC_005_veliadb_backup/dashboard_data/20240610_v_1_11/cache/sorf_df.parq"
+DASHBOARD_SORFS_URL = "s3://velia-data-dev/VDC_005_veliadb_backup/dashboard_data/20240612_v_1_13/cache/sorf_df.parq"
 RECEPTORS_URL = "s3://velia-analyses-dev/VAP_20240306_receptor_coverage/data/receptors_uniprot_ccle_expression.csv"
 
 DE_LFC_THRESH = np.log2(1.5)

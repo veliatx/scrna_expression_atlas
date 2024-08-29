@@ -10,18 +10,15 @@ import streamlit as st
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
-from shapely.ops import unary_union
-from shapely import Polygon, MultiPolygon, GeometryCollection
-
 from scrna_atlas.multiadata import AtlasAdataWrapper
-from scrna_atlas import velia_utils, utils
-from scrna_atlas.plotting import build_scatter
+from scrna_atlas import velia_utils, utils, plotting
 
 
 def atlas_explorer_tab(
     multiadata: AtlasAdataWrapper,
     tab_title: str,
 ) -> None:
+    """ """
     st.title(tab_title)
 
     resolution_option = st.selectbox(
@@ -71,7 +68,7 @@ def atlas_explorer_tab(
         + " ".join(meta.get("comments", []))
     )
 
-    scatter_data = build_scatter(adata, color_umap_by, pick_umap_color)
+    scatter_data = plotting.build_scatter(adata, color_umap_by, pick_umap_color)
     fig_umap = go.Figure(data=scatter_data)
     fig_umap.update_layout(
         xaxis_title="umap_1",
@@ -112,7 +109,7 @@ def atlas_explorer_tab(
                 subplot_titles=umapexp_color_umap_by,
             )
             for i, c in enumerate(umapexp_color_umap_by):
-                c_scatter_data = build_scatter(adata, c, ["All"])
+                c_scatter_data = plotting.build_scatter(adata, c, ["All"])
                 for cs in c_scatter_data:
                     fig_umapexp.add_trace(cs, row=1, col=i + 1)
                     fig_umapexp.update_layout({f"xaxis{i+1}_title": "umap_1"})
@@ -155,15 +152,14 @@ def atlas_explorer_tab(
             "Pick Gene/uProtein", gene_selection_options, key=tab_title + "b"
         )
         log_yaxis_select = st.radio("Scale", ["linear", "log"], horizontal=True)
-        bar_data = []
 
         gene_name_locs = np.where(var_wvtx["gene_name"].isin(gene_selection))[0]
         vtx_name_locs = np.where(
             var_wvtx["vtx_id_concat"].map(lambda x: any(g in x for g in gene_selection))
         )[0]
         column_names = (
-            var_wvtx["gene_name"][gene_name_locs.tolist()].tolist()
-            + var_wvtx["vtx_id_concat"][vtx_name_locs.tolist()].tolist()
+            var_wvtx["gene_name"][gene_name_locs].tolist()
+            + var_wvtx["vtx_id_concat"][vtx_name_locs].tolist()
         )
         gene_selection_df = pd.concat(
             [
@@ -180,23 +176,31 @@ def atlas_explorer_tab(
             ignore_index=False,
         )
 
-        for g in column_names:
-            g_ix = [i for i, s in enumerate(gene_selection) if s in g][0]
-            gene_selection_df_groupby = gene_selection_df.groupby(
-                celltype_tissue_select
-            )
-            group_means = gene_selection_df_groupby[g].agg(np.mean).fillna(0.0)
-            group_ncells = (
-                gene_selection_df_groupby["bulk_n_cells"].agg(np.sum).fillna(0.0)
-            )
-            bar_data.append(
-                go.Bar(
-                    name=gene_selection[g_ix],
-                    x=group_means.index,
-                    y=group_means,
-                    text=group_ncells,
-                )
-            )
+        # bar_data = []
+
+        # for g in column_names:
+        #     g_ix = [i for i, s in enumerate(gene_selection) if s in g][0]
+        #     gene_selection_df_groupby = gene_selection_df.groupby(
+        #         celltype_tissue_select
+        #     )
+        #     group_means = gene_selection_df_groupby[g].agg(np.mean).fillna(0.0)
+        #     group_ncells = (
+        #         gene_selection_df_groupby["bulk_n_cells"].agg(np.sum).fillna(0.0)
+        #     )
+        #     bar_data.append(
+        #         go.Bar(
+        #             name=gene_selection[g_ix],
+        #             x=group_means.index,
+        #             y=group_means,
+        #             text=group_ncells,
+        #         )
+        #     )
+        bar_data = plotting.build_expression_barplot(
+            gene_selection_df,
+            celltype_tissue_select,
+            gene_selection,
+            column_names,
+        )
 
         fig_expression = go.Figure(
             data=bar_data,
@@ -216,11 +220,15 @@ def atlas_explorer_tab(
         specificity_options = ["Cell Type", "Tissue", "Tissue + Cell Type", "Louvain"]
         if "cluster" in tau_adata.obs.columns:
             specificity_options.append("Cluster")
-        specificity_by = st.radio(
-            "Filter specificity by:",
-            specificity_options,
-            horizontal=True,
-        )
+
+        st_col1, st_col2 = st.columns([0.3, 0.7])
+
+        with st_col1:
+            specificity_by = st.radio(
+                "Filter specificity by:",
+                specificity_options,
+                horizontal=False,
+            )
         if specificity_by == "Tissue + Cell Type":
             specificity_by = "Tissue Cell Type"
         specificity_by = specificity_by.lower().replace(" ", "_")
@@ -241,6 +249,7 @@ def atlas_explorer_tab(
                     & (
                         ~tau_adata.var.columns.isin(
                             [
+                                "gene_type",
                                 "n_cells",
                                 "means",
                                 "dispersions",
@@ -272,8 +281,18 @@ def atlas_explorer_tab(
                 )
                 .rename({f"tau__{specificity_by}": "tau"}, axis=1)
             )
-            st_col1, st_col2 = st.columns(2)
-            with st_col1:
+
+            if "ntpm" in tau_adata.layers.keys() and isinstance(
+                tau_adata.layers["ntpm"], np.ndarray
+            ):
+                tau_df[f"top_{specificity_by}"] = tau_adata.obs[specificity_by][
+                    tau_adata.layers["ntpm"].argmax(axis=0)
+                ].values
+                tau_df[f"top_{specificity_by}_max_ntpm"] = tau_adata.layers["ntpm"].max(
+                    axis=0
+                )
+
+            with st_col2:
                 fig_tau = go.Figure(
                     go.Histogram(
                         x=tau_df["tau"],
@@ -288,32 +307,37 @@ def atlas_explorer_tab(
 
                 st.plotly_chart(fig_tau, use_container_width=True, height=1000)
 
-                tau_select = st.slider(
-                    "Select tau:",
-                    0.0,
-                    1.0,
-                    (0.7, 1.0),
-                )
-            with st_col2:
-                display_tau_df = tau_df.loc[
-                    (tau_df["tau"] >= tau_select[0])
-                    & (tau_df["tau"] <= tau_select[1])
-                    & ~tau_df["tau"].isna(),
-                ].sort_values("tau", ascending=False)
-                st.write(
-                    f"Genes: {display_tau_df.shape[0]}, uPs: {display_tau_df['vtx_id'].explode().shape[0]}"
-                )
-                tau_select = st.dataframe(
-                    display_tau_df,
-                    use_container_width=True,
-                    selection_mode="single-row",
-                    on_select="rerun",
-                )["selection"]["rows"]
+            tau_select = st.slider(
+                "Select tau:",
+                0.0,
+                1.0,
+                (0.7, 1.0),
+            )
+
+            display_tau_df = tau_df.loc[
+                (tau_df["tau"] >= tau_select[0])
+                & (tau_df["tau"] <= tau_select[1])
+                & ~tau_df["tau"].isna(),
+            ].sort_values("tau", ascending=False)
+
+            display_tau_df = velia_utils.filter_dataframe_dynamic(display_tau_df)
+
+            st.write(
+                f"Genes: {display_tau_df.shape[0]}, uPs: {display_tau_df['vtx_id'].explode().unique().shape[0]}  \n \n"
+                + "Select a row on left:"
+            )
+
+            tau_select = st.dataframe(
+                display_tau_df,
+                use_container_width=True,
+                selection_mode="single-row",
+                on_select="rerun",
+            )["selection"]["rows"]
             if tau_select:
                 st_select_col1, st_select_col2 = st.columns(2)
                 with st_select_col1:
                     fig_tau_scatter1 = go.Figure(
-                        data=build_scatter(
+                        data=plotting.build_scatter(
                             tau_adata,
                             color_umap_by=specificity_by,
                             pick_umap_color=["All"],
@@ -331,7 +355,7 @@ def atlas_explorer_tab(
                     )
                 with st_select_col2:
                     fig_tau_scatter2 = go.Figure(
-                        data=build_scatter(
+                        data=plotting.build_scatter(
                             tau_adata,
                             color_umap_by=specificity_by,
                             pick_umap_color=[
@@ -427,7 +451,7 @@ def atlas_explorer_tab(
                     & ~display_selectivity_df["specificity_score"].isna(),
                 ].sort_values("specificity_score", ascending=False)
                 st.write(
-                    f"Genes: {display_selectivity_df.shape[0]}, uPs: {display_selectivity_df['vtx_id'].explode().shape[0]}"
+                    f"Genes: {display_selectivity_df.shape[0]}, uPs: {display_selectivity_df['vtx_id'].explode().unique().shape[0]}"
                 )
                 specificity_select = st.dataframe(
                     display_selectivity_df,
@@ -440,7 +464,7 @@ def atlas_explorer_tab(
                 st_select_col1, st_select_col2 = st.columns(2)
                 with st_select_col1:
                     fig_specificity_scatter1 = go.Figure(
-                        data=build_scatter(
+                        data=plotting.build_scatter(
                             tau_adata,
                             color_umap_by=specificity_by,
                             pick_umap_color=["All"],
@@ -458,7 +482,7 @@ def atlas_explorer_tab(
                     )
                 with st_select_col2:
                     fig_specificty_scatter2 = go.Figure(
-                        data=build_scatter(
+                        data=plotting.build_scatter(
                             tau_adata,
                             color_umap_by=specificity_by,
                             pick_umap_color=[
