@@ -717,3 +717,30 @@ def build_hpa_tissue_adata(
     )
 
     return adata
+
+def read_sample_mtx(
+    mtx_fh: Path, 
+    barcodes_fh: Path,
+    features_fh: Path,
+    var_cols: List[str] = ['ensembl_id', 'gene_id'],
+    obs_cols: List[str] = ['cell_id'],
+    split_index: int = 1,
+    split_char: str = '_',
+    obs_key: str = 'patient_id',
+) -> ad.AnnData:
+    """ """
+    adata_mtx = ad.read_mtx(mtx_fh).T
+    var = pd.read_csv(
+        features_fh,
+        sep='\t',
+        names=var_cols,
+    )
+    obs = pd.read_csv(
+        barcodes_fh,
+        names=obs_cols,
+    )
+    obs[obs_key] = mtx_fh.stem.split(split_char)[split_index]
+    adata_mtx.obs = obs.set_index(obs_cols[0])
+    adata_mtx.var = var.set_index(var_cols[0])
+
+    return adata_mtx

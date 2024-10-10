@@ -423,7 +423,7 @@ def r_build_expression_matrix(
                 raise Exception("Cannot conver X to dense.") from e
 
     r_m = ro.r.matrix(
-        ro.FloatVector(X.T.flatten().tolist()),
+        ro.FloatVector(X.flatten().tolist()),
         ncol=padata.obs.shape[0],
     )
 
